@@ -26,7 +26,6 @@ describe('SEO helpers', () => {
       const json = websiteJsonLd('en');
       expect(json['@type']).toBe('WebSite');
       expect(json.inLanguage).toBe('en');
-      expect(json.potentialAction['@type']).toBe('SearchAction');
     });
   });
 
@@ -78,15 +77,15 @@ describe('SEO helpers', () => {
       const json = breadcrumbJsonLd({
         category: 'bosses',
         categoryLabel: 'All Bosses',
-        title: 'Gelum Guide',
-        slug: 'gelum',
+        title: 'Emberfang Guide',
+        slug: 'emberfang',
         locale: 'en',
       });
       expect(json['@type']).toBe('BreadcrumbList');
       expect(json.itemListElement).toHaveLength(3);
       expect(json.itemListElement[0].name).toBe('Home');
       expect(json.itemListElement[1].name).toBe('All Bosses');
-      expect(json.itemListElement[2].name).toBe('Gelum Guide');
+      expect(json.itemListElement[2].name).toBe('Emberfang Guide');
     });
   });
 

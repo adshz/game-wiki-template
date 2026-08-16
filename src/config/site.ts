@@ -1,7 +1,7 @@
 /**
  * Site configuration — the single source of truth for game-specific metadata.
  *
- * 👉 SKINNING: Change every field here when building a new game wiki.
+ * 👉 APPLY TEMPLATE: Change every field here when building a new game wiki.
  * This is part of the CONFIG LAYER — framework code reads from here, never the reverse.
  */
 
@@ -26,6 +26,12 @@ export interface SiteConfig {
     twitter?: string;
     reddit?: string;
   };
+  /**
+   * Canonical URLs about the GAME (Steam page, official site, Wikipedia entry…).
+   * Emitted as Organization JSON-LD `sameAs` — helps Google / AI engines link
+   * this wiki to the game's knowledge-graph entity.
+   */
+  sameAs?: string[];
   game: {
     /** Full game name. */
     name: string;
@@ -45,6 +51,8 @@ export interface SiteConfig {
    */
   ogImageWidth: number;
   ogImageHeight: number;
+  /** Default author name for articles without an explicit `author` in frontmatter (E-E-A-T signal). */
+  defaultAuthor?: string;
 }
 
 export const site: SiteConfig = {
@@ -63,6 +71,11 @@ export const site: SiteConfig = {
     twitter: 'https://twitter.com/example',
     reddit: 'https://reddit.com/r/anvilquest',
   },
+  // 👉 APPLY TEMPLATE: point these at the game's real canonical pages.
+  sameAs: [
+    'https://example.com/anvil-quest',
+    'https://en.wikipedia.org/wiki/Anvil_Quest',
+  ],
   game: {
     name: 'Anvil Quest',
     platform: 'Roblox',
@@ -75,21 +88,8 @@ export const site: SiteConfig = {
   ogImageHeight: 630,
 };
 
-/**
- * Build-time integrations.
- *
- * Cloudflare Pages exposes dashboard/Wrangler build variables through
- * `process.env`; Astro exposes local `.env` files through `import.meta.env`.
- * Supporting both keeps production builds and local previews consistent.
- */
-export const siteUrl: string = (
-  process.env.SITE_URL ||
-  import.meta.env.SITE_URL ||
-  `https://${site.domain}`
-).replace(/\/$/, '');
-
-export const googleAnalyticsId: string =
-  process.env.PUBLIC_GA_ID || import.meta.env.PUBLIC_GA_ID || '';
-
-export const googleSiteVerification: string =
-  process.env.PUBLIC_GSC_VERIFICATION || import.meta.env.PUBLIC_GSC_VERIFICATION || '';
+/** Absolute site URL (no trailing slash). Falls back to the Astro `site` config. */
+export const siteUrl: string = (process.env.SITE_URL || `https://${site.domain}`).replace(
+  /\/$/,
+  '',
+);

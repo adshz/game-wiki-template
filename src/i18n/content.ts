@@ -17,6 +17,7 @@
 
 import { getCollection, getEntry, type CollectionEntry } from 'astro:content';
 import { defaultLocale, type Locale } from './routing';
+import { slugifyTag } from '~/lib/url';
 
 export type WikiEntry = CollectionEntry<'wiki'>;
 
@@ -29,24 +30,19 @@ export interface ResolvedEntry {
 }
 
 /**
- * Parse an entry id like "en/bosses/gelum" or "ja/bosses/sub/gelum" into parts.
- * Returns null if the id doesn't match `<locale>/<category>/<...slug>`.
+ * Draft visibility rule: drafts are visible in dev (author preview) but
+ * excluded from the production build everywhere (pages, lists, recent,
+ * related, hreflang, sitemap).
  */
-export function parseEntryId(
-  id: string,
-): { locale: Locale; category: string; slug: string } | null {
-  // Strip the .mdx extension that the glob loader includes in the id.
-  const cleanId = id.replace(/\.mdx$/, '');
-  const parts = cleanId.split('/');
-  if (parts.length < 3) return null;
-  const [locale, category, ...rest] = parts;
-  if (!isLocaleSafe(locale)) return null;
-  return { locale, category, slug: rest.join('/') };
+const isDev = import.meta.env.DEV;
+
+function isPublished(e: WikiEntry): boolean {
+  return !e.data.draft || isDev;
 }
 
-function isLocaleSafe(value: string): value is Locale {
-  return value === 'en' || value === 'ja';
-}
+// parseEntryId lives in lib/content-utils.ts (pure, vitest-testable).
+import { parseEntryId } from '~/lib/content-utils';
+export { parseEntryId };
 
 /**
  * Load a single article. Falls back to English if the locale version is missing.
@@ -64,14 +60,14 @@ export async function getEntryWithFallback(
 
   // 1. Try the requested locale first.
   const requested = await getEntry('wiki', id);
-  if (requested) {
+  if (requested && isPublished(requested)) {
     return { entry: requested, servedLocale: locale, isFallback: false };
   }
 
   // 2. Fall back to English (default locale).
   if (locale !== defaultLocale) {
     const fallback = await getEntry('wiki', `${defaultLocale}/${category}/${slug}`);
-    if (fallback) {
+    if (fallback && isPublished(fallback)) {
       return { entry: fallback, servedLocale: defaultLocale, isFallback: true };
     }
   }
@@ -88,7 +84,7 @@ export async function getEntriesByCategory(category: string, locale: Locale): Pr
   return all
     .filter((e) => {
       const parsed = parseEntryId(e.id);
-      return parsed?.locale === locale && parsed.category === category;
+      return isPublished(e) && parsed?.locale === locale && parsed.category === category;
     })
     .sort((a, b) => b.data.date.getTime() - a.data.date.getTime()); // newest first
 }
@@ -99,25 +95,25 @@ export async function getEntriesByCategory(category: string, locale: Locale): Pr
 export async function getAllEntriesByCategory(category: string): Promise<WikiEntry[]> {
   const all = await getCollection('wiki');
   return all
-    .filter((e) => parseEntryId(e.id)?.category === category)
+    .filter((e) => isPublished(e) && parseEntryId(e.id)?.category === category)
     .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
 }
 
 /**
  * All locales that have at least one article for a given (category, slug).
- * Used to generate hreflang alternates.
+ * Used to generate hreflang alternates. Only lists locales whose page is
+ * actually built (the default-locale page exists only if an English MDX
+ * exists), so alternates never point at a 404.
  */
 export async function localesForEntry(category: string, slug: string): Promise<Locale[]> {
   const all = await getCollection('wiki');
   const found = new Set<Locale>();
   for (const entry of all) {
     const parsed = parseEntryId(entry.id);
-    if (parsed?.category === category && parsed.slug === slug) {
+    if (isPublished(entry) && parsed?.category === category && parsed.slug === slug) {
       found.add(parsed.locale);
     }
   }
-  // Always include default locale for x-default / fallback.
-  found.add(defaultLocale);
   return Array.from(found);
 }
 
@@ -127,7 +123,7 @@ export async function localesForEntry(category: string, slug: string): Promise<L
 export async function getRecentEntries(locale: Locale, limit = 6): Promise<WikiEntry[]> {
   const all = await getCollection('wiki');
   return all
-    .filter((e) => parseEntryId(e.id)?.locale === locale)
+    .filter((e) => isPublished(e) && parseEntryId(e.id)?.locale === locale)
     .sort((a, b) => b.data.date.getTime() - a.data.date.getTime())
     .slice(0, limit);
 }
@@ -148,9 +144,83 @@ export async function getRelatedEntries(
   return all
     .filter((e) => {
       if (e.id === current.id) return false;
+      if (!isPublished(e)) return false;
       const p = parseEntryId(e.id);
       if (p?.locale !== locale) return false;
       return e.data.tags.some((t: string) => current.data.tags.includes(t));
     })
     .slice(0, limit);
 }
+
+/**
+ * All tags for a locale with article counts, most-used first.
+ * Does NOT fall back to English (list accuracy rule — PRD §9.3).
+ */
+export async function getTagsWithCounts(locale: Locale): Promise<Array<{ tag: string; count: number }>> {
+  const all = await getCollection('wiki');
+  const counts = new Map<string, number>();
+  for (const e of all) {
+    const parsed = parseEntryId(e.id);
+    if (!isPublished(e) || parsed?.locale !== locale) continue;
+    for (const tag of e.data.tags) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([tag, count]) => ({ tag, count }))
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
+}
+
+/**
+ * All articles in a locale carrying a given tag (matched by slugified tag).
+ * Does NOT fall back to English — empty result shows the empty state.
+ */
+export async function getEntriesByTag(tagSlug: string, locale: Locale): Promise<WikiEntry[]> {
+  const all = await getCollection('wiki');
+  return all
+    .filter((e) => {
+      if (!isPublished(e)) return false;
+      const parsed = parseEntryId(e.id);
+      if (parsed?.locale !== locale) return false;
+      return e.data.tags.some((t: string) => slugifyTag(t) === tagSlug);
+    })
+    .sort((a, b) => b.data.date.getTime() - a.data.date.getTime());
+}
+
+/**
+ * All locales where at least one article carries this tag slug.
+ * Used to build hreflang alternates that never point at a 404
+ * (tag pages don't fall back to English).
+ */
+export async function localesForTag(tagSlug: string): Promise<Locale[]> {
+  const all = await getCollection('wiki');
+  const found = new Set<Locale>();
+  for (const e of all) {
+    if (!isPublished(e)) continue;
+    const parsed = parseEntryId(e.id);
+    if (parsed && e.data.tags.some((t: string) => slugifyTag(t) === tagSlug)) {
+      found.add(parsed.locale);
+    }
+  }
+  return Array.from(found);
+}
+
+/**
+ * The display tag (original casing) for a tag slug in a locale,
+ * or null when no article carries it.
+ */
+export async function tagLabelFor(tagSlug: string, locale: Locale): Promise<string | null> {
+  const all = await getCollection('wiki');
+  for (const e of all) {
+    const parsed = parseEntryId(e.id);
+    if (!isPublished(e) || parsed?.locale !== locale) continue;
+    const match = e.data.tags.find((t: string) => slugifyTag(t) === tagSlug);
+    if (match) return match;
+  }
+  return null;
+}
+
+// Staleness constants + predicate live in lib/content-utils.ts (pure,
+// vitest-testable — this module imports astro:content and can't be loaded
+// outside a build).
+export { isPossiblyOutdated, STALE_AFTER_DAYS, STALE_CATEGORIES } from '~/lib/content-utils';

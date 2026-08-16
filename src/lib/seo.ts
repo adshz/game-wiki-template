@@ -20,6 +20,9 @@ export function organizationJsonLd() {
     logo: `${siteUrl}/android-chrome-512x512.png`,
     image: `${siteUrl}/images/hero.webp`,
     description: site.description,
+    // Entity association: link the wiki to the game's canonical pages
+    // (Steam / official site / Wikipedia) — knowledge-graph signal.
+    ...(site.sameAs && site.sameAs.length > 0 ? { sameAs: site.sameAs } : {}),
   };
 }
 
@@ -32,11 +35,6 @@ export function websiteJsonLd(locale: Locale = defaultLocale) {
     url: siteUrl,
     description: site.description,
     inLanguage: locale,
-    potentialAction: {
-      '@type': 'SearchAction',
-      target: `${siteUrl}/search?q={search_term_string}`,
-      'query-input': 'required name=search_term_string',
-    },
   };
 }
 
@@ -50,13 +48,35 @@ export function articleJsonLd(opts: {
   category: string;
   slug: string;
   locale: Locale;
+  /** Named author (E-E-A-T) — renders as Person; falls back to the Organization. */
+  authorName?: string;
+  /** Profile URLs folded into the Person's sameAs (knowledge-graph signal). */
+  authorSameAs?: string[];
 }) {
-  const { title, description, image, datePublished, dateModified, category, slug, locale } = opts;
+  const {
+    title,
+    description,
+    image,
+    datePublished,
+    dateModified,
+    category,
+    slug,
+    locale,
+    authorName,
+    authorSameAs,
+  } = opts;
   const coverUrl = image
     ? image.startsWith('http')
       ? image
       : `${siteUrl}${image}`
     : `${siteUrl}/images/hero.webp`;
+  const author = authorName
+    ? {
+        '@type': 'Person',
+        name: authorName,
+        ...(authorSameAs && authorSameAs.length > 0 ? { sameAs: authorSameAs } : {}),
+      }
+    : { '@type': 'Organization', name: site.name };
   return {
     '@context': 'https://schema.org',
     '@type': 'Article',
@@ -65,7 +85,7 @@ export function articleJsonLd(opts: {
     image: coverUrl,
     datePublished: datePublished.toISOString(),
     dateModified: (dateModified ?? datePublished).toISOString(),
-    author: { '@type': 'Organization', name: site.name },
+    author,
     publisher: {
       '@type': 'Organization',
       name: site.name,
@@ -85,8 +105,10 @@ export function breadcrumbJsonLd(opts: {
   title: string;
   slug: string;
   locale: Locale;
+  /** Localized "Home" label (locale JSON nav.home). */
+  homeLabel?: string;
 }) {
-  const { category, categoryLabel, title, slug, locale } = opts;
+  const { category, categoryLabel, title, slug, locale, homeLabel = 'Home' } = opts;
   return {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -94,7 +116,7 @@ export function breadcrumbJsonLd(opts: {
       {
         '@type': 'ListItem',
         position: 1,
-        name: 'Home',
+        name: homeLabel,
         item: `${siteUrl}${locale === defaultLocale ? '' : `/${locale}`}`,
       },
       {
@@ -125,8 +147,10 @@ export function simpleBreadcrumbJsonLd(opts: {
   /** Absolute-or-relative path of the current page for a given locale. */
   path: string;
   locale: Locale;
+  /** Localized "Home" label (locale JSON nav.home). */
+  homeLabel?: string;
 }) {
-  const { pageLabel, path, locale } = opts;
+  const { pageLabel, path, locale, homeLabel = 'Home' } = opts;
   return {
     '@context': 'https://schema.org',
     '@type': 'BreadcrumbList',
@@ -134,7 +158,7 @@ export function simpleBreadcrumbJsonLd(opts: {
       {
         '@type': 'ListItem',
         position: 1,
-        name: 'Home',
+        name: homeLabel,
         item: `${siteUrl}${locale === defaultLocale ? '' : `/${locale}`}`,
       },
       {
@@ -181,9 +205,81 @@ export function faqPageJsonLd(items: Array<{ question: string; answer: string }>
   };
 }
 
+/**
+ * Generic ItemList JSON-LD for cross-category lists (tag pages, recent
+ * updates) where itemListJsonLd()'s single-category URL shape doesn't fit.
+ * Each item carries its own absolute URL.
+ */
+export function urlListJsonLd(opts: {
+  name: string;
+  items: Array<{ title: string; url: string }>;
+}) {
+  const { name, items } = opts;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name,
+    itemListElement: items.map((item, idx) => ({
+      '@type': 'ListItem',
+      position: idx + 1,
+      name: item.title,
+      url: item.url,
+    })),
+  };
+}
+
+/** ImageObject JSON-LD — one per gallery image (Google Images eligibility). */
+export function imageObjectJsonLd(opts: { url: string; caption?: string; alt?: string }) {
+  const { url, caption, alt } = opts;
+  // Prefer the author-written alt as the name; caption describes context.
+  const name = alt ?? caption;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'ImageObject',
+    contentUrl: url,
+    ...(name ? { name, description: caption ?? name } : {}),
+  };
+}
+
+/**
+ * VideoObject JSON-LD — one per embedded YouTube video on an article page.
+ * Eligible for Google Video search results. `uploadDate` is required by
+ * Google; the article's publish date is the best available signal.
+ */
+export function videoObjectJsonLd(opts: {
+  videoId: string;
+  title: string;
+  uploadDate: Date;
+}) {
+  const { videoId, title, uploadDate } = opts;
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'VideoObject',
+    name: title,
+    thumbnailUrl: [`https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`],
+    uploadDate: uploadDate.toISOString(),
+    embedUrl: `https://www.youtube.com/embed/${videoId}`,
+  };
+}
+
 /** Build the <title> string with consistent suffix. */
 export function pageTitle(title: string): string {
   return `${title} — ${site.name}`;
+}
+
+/** VideoGame JSON-LD — injected on the homepage for game entity recognition. */
+export function videoGameJsonLd() {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'VideoGame',
+    name: site.game.name,
+    description: site.description,
+    url: siteUrl,
+    genre: site.game.genre,
+    gamePlatform: site.game.platform,
+    publisher: { '@type': 'Organization', name: site.game.developer },
+    ...(site.game.releaseDate ? { datePublished: site.game.releaseDate } : {}),
+  };
 }
 
 /** Available locales for hreflang generation (imported by pages). */

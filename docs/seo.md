@@ -1,8 +1,8 @@
 # SEO 工程化
 
-> AnvilWiki 的 SEO 设计原则：**你只管填内容，SEO 全交给代码自动生成**。
+> AnvilWiki 的 SEO 设计原则：**填好内容，SEO 标签由构建流程自动生成**。
 >
-> 写文章填好 frontmatter，改首页填好 en.json，剩下的 title / 结构化数据 / sitemap / 多语言链接全部自动产出。
+> 文章写好 frontmatter，首页改好 en.json，构建时自动产出 title / 结构化数据 / sitemap / 多语言 alternate 链接。
 
 ---
 
@@ -59,7 +59,7 @@
     "@type": "ItemList",
     "name": "All Bosses",
     "itemListElement": [
-      { "position": 1, "name": "Gelum Boss Guide", "url": "..." },
+      { "position": 1, "name": "Emberfang Boss Guide", "url": "..." },
       ...
     ]
   }
@@ -68,12 +68,12 @@
 
 **title 来自**：`en.json` 的 `overview.bosses.overviewTitle`。
 
-### 文章页（如 /bosses/gelum）
+### 文章页（如 /bosses/emberfang）
 
 ```html
-<title>Gelum Boss Guide - Complete Strategy — Anvil Quest Wiki</title>
+<title>Emberfang Boss Guide - Complete Strategy — Anvil Quest Wiki</title>
 <meta property="og:type" content="article" />
-<meta property="og:image" content="https://domain/images/gelum.jpg" />
+<meta property="og:image" content="https://domain/images/emberfang.jpg" />
 <meta name="twitter:card" content="summary_large_image" />
 
 <script type="application/ld+json">
@@ -92,13 +92,15 @@
     "itemListElement": [
       { "position": 1, "name": "Home" },
       { "position": 2, "name": "All Bosses" },
-      { "position": 3, "name": "Gelum Boss Guide" }
+      { "position": 3, "name": "Emberfang Boss Guide" }
     ]
   }
 </script>
 ```
 
 **数据来自**：文章的 frontmatter（title / description / image / date / lastModified）。
+
+> **JSON-LD 类型参考**：[schema.org](https://schema.org/)（[Organization](https://schema.org/Organization) / [WebSite](https://schema.org/WebSite) / [Article](https://schema.org/Article) / [BreadcrumbList](https://schema.org/BreadcrumbList) / [ItemList](https://schema.org/ItemList) / [FAQPage](https://schema.org/FAQPage)）、[Google 结构化数据入门](https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data)
 
 ---
 
@@ -107,12 +109,14 @@
 每个页面 `<head>` 自动注入所有语言版本的 alternate：
 
 ```html
-<link rel="alternate" hreflang="en" href="https://domain/bosses/gelum" />
-<link rel="alternate" hreflang="ja" href="https://domain/ja/bosses/gelum" />
-<link rel="alternate" hreflang="x-default" href="https://domain/bosses/gelum" />
+<link rel="alternate" hreflang="en" href="https://domain/bosses/emberfang" />
+<link rel="alternate" hreflang="ja" href="https://domain/ja/bosses/emberfang" />
+<link rel="alternate" hreflang="x-default" href="https://domain/bosses/emberfang" />
 ```
 
 `x-default` 指向英文版（默认语言）。
+
+> **参考**：[Google 多语言版本指南](https://developers.google.com/search/docs/specialty/international/localized-versions)（hreflang + x-default 用法）、[Astro i18n 文档](https://docs.astro.build/en/guides/internationalization/)
 
 ---
 
@@ -128,7 +132,9 @@
 4. 输出 dist/sitemap-0.xml + dist/sitemap-index.xml
 ```
 
-**为什么不能硬编码**：列表页可能展示 28 个 boss 卡片，但只有 3 个有 MDX 攻略。如果 sitemap 从卡片数组生成，会产生 25 个指向 404 的 URL，严重损害 SEO。
+**为什么不能硬编码**：列表页的卡片数据（en.json 里的 highlights）可能包含尚未写成文章的条目。如果 sitemap 从卡片数组生成，会产生指向 404 的 URL，损害 SEO。
+
+> **参考**：[sitemaps.org 协议规范](https://www.sitemaps.org/protocol.html)、[Google sitemap 指南](https://developers.google.com/search/docs/crawling-indexing/sitemaps/overview)
 
 ---
 
@@ -145,6 +151,8 @@
 ```
 
 由 `SITE_URL` 环境变量拼接，**禁止硬编码域名**。
+
+> **参考**：[Open Graph 协议（ogp.me）](https://ogp.me/)（og:image 必须是绝对 URL）、[Google 搜索结果摘要指南](https://developers.google.com/search/docs/appearance/snippet)
 
 ---
 
@@ -163,6 +171,8 @@
 □ 移动端适配正常
 □ Lighthouse SEO 分数 ≥ 95
 ```
+
+> **检查清单依据**：[Google title 标签指南](https://developers.google.com/search/docs/appearance/title-element)（title 长度建议）、[Google 搜索结果摘要指南](https://developers.google.com/search/docs/appearance/snippet)（description）、[Google 语义 HTML 指南](https://developers.google.com/search/docs/appearances/semantic-html)（H1 单一性、标题层级）、[MDN 标题元素](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/Heading_Elements)
 
 ### 用 Google Rich Results Test 验证
 
@@ -184,8 +194,54 @@
 
 ---
 
+## AI 搜索时代：让内容被 AI Overviews / ChatGPT 引用
+
+2025-2026 年 Google AI Overviews 导致出版商搜索流量普遍下降（问答型查询首当其冲——而游戏 wiki 的"怎么打 X""最新 codes"正是问答型）。AnvilWiki 内置了应对这套打法的基础设施，你写作时按下面的规则做即可最大化被引用概率。
+
+### 模板已内置的部分（自动生效）
+
+| 能力 | 作用 |
+|---|---|
+| `summary` frontmatter + Quick Answer 卡片 | 40-60 词直答块，AI Overviews / featured snippet 抓取的最爱 |
+| `llms.txt`（`/llms.txt`） | 给 ChatGPT/Perplexity/Claude 的站点内容索引，构建时自动生成 |
+| `boss` frontmatter 数据卡 | 结构化键值对（HP/弱点/位置），AI 倾向引用结构化答案 |
+| Article / FAQPage JSON-LD | 语义化结构，AI 爬虫仍解析（FAQ rich result 虽废弃） |
+| sitemap `<lastmod>` | Google 唯一信任的调度字段，更新后重新抓取得更及时 |
+| RSS feed（`/rss.xml`） | 内容分发的去中心化管道，配合聚合器/IFTTT 自动推送 |
+
+### 写作规则（你需要做的）
+
+1. **H2 用问题句式**：写 `## How do I beat Emberfang in phase 1?` 而非 `## 第一阶段打法`。用户的搜索词就是问题，AI 匹配问题标题。
+2. **答案紧跟标题，40-60 词**：H2 下面第一段直接给答案，再展开细节。不要铺垫。
+3. **用原生表格/有序列表呈现数据**：掉落率、配装、tier list 用 Markdown 表格（模板已做移动端横滑优化），AI 解析表格的准确率远高于散文。
+4. **每篇必填 `summary`**：这是你的"AI 摘要候选人"字段。
+5. **时效内容标注日期**：codes/patch notes 类文章的 `lastModified` 保持更新——AI 引用偏好新鲜内容，模板超 90 天会自动显示过期提示。
+
+### 参考（公开权威来源）
+
+- Google 官方：[优化生成式 AI 功能指南](https://developers.google.com/search/docs/fundamentals/ai-optimization-guide)
+- [llms.txt 规范](https://llmstxt.org/)
+
+---
+
+
+## v1.5–v1.8 新增的 SEO 资产
+
+| 资产 | 位置 | 作用 |
+|---|---|---|
+| 标签聚合页 | `/tags/<tag>`(各语言独立生成,不回退) | 每篇文章的 tags 变成可收录的内链枢纽页,扩大长尾索引面 |
+| `/recent` 页 | 全语言 | 承接 "patch notes / update" 类查询;配合 sitemap lastmod 提升回访 |
+| VideoObject JSON-LD | 有 `videos` 的文章 | Google Video 搜索富结果资格 |
+| ImageObject JSON-LD | 有 `gallery` 的文章 | Google Images 收录资格 |
+| Person JSON-LD | `src/config/authors.ts` 注册过作者的文章 | author 实体从 Organization 升级为 Person(E-E-A-T),支持 sameAs |
+| FAQPage JSON-LD | 有 `codes` frontmatter 的文章 | 本地化四问(redeem/过期/频率)结构化 |
+| gameVersion 徽章 | 文章头 | 时效性信号,配 90 天过期横幅(STALE_CATEGORIES) |
+| game.config 式新鲜度 | content-pipeline 每周审计 | codes >7 天 / 时效分类 >90 天自动开 issue |
+
+注意:FAQPage 富摘要 Google 已限制到政府/医疗站(游戏站拿不到富展示),其价值在结构化信号而非 SERP 样式。
+
 ## 下一步
 
 - [内容格式](./content-format.md)
-- [换皮工作流](./skinning.md)
+- [套用模板指南](./apply-template.md)
 - 回到 [README](../README.md)
