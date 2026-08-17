@@ -44,6 +44,11 @@ jobs:
 
       - name: Config consistency (nav/locale 3-place check)
         run: pnpm check-config
+        env:
+          # This used to fall back to wrangler.toml's [vars] SITE_URL, which
+          # no longer exists now that Pages' build-time [vars] injection was
+          # replaced by the Workers + GitHub Actions flow (see cd.yml).
+          SITE_URL: ${{ vars.SITE_URL || 'https://anvilwiki.pages.dev' }}
 
       - name: Build
         run: pnpm build
