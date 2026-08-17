@@ -48,12 +48,28 @@ jobs:
       - name: Build
         run: pnpm build
         env:
-          # FORKS: set a repository variable SITE_URL (Settings → Secrets and
-          # variables → Actions → Variables) to your domain — otherwise CI
-          # falls back to the demo domain and the built canonical/sitemap
-          # point at the wrong site (production builds use wrangler.toml,
-          # which this does not affect).
+          # FORKS: set these as repository Variables (Settings → Secrets and
+          # variables → Actions → Variables), not in wrangler.toml — Workers
+          # doesn't build your site (wrangler deploy just uploads an
+          # already-built dist/), so wrangler.toml [vars] no longer feeds the
+          # Astro build the way it did under Cloudflare Pages' Git-connect
+          # flow. Everything below is optional except SITE_URL; empty =
+          # that feature stays disabled, matching .env.example's defaults.
           SITE_URL: ${{ vars.SITE_URL || 'https://anvilwiki.pages.dev' }}
+          PUBLIC_ADSENSE_CLIENT: ${{ vars.PUBLIC_ADSENSE_CLIENT }}
+          PUBLIC_ADSENSE_SLOT_STICKY: ${{ vars.PUBLIC_ADSENSE_SLOT_STICKY }}
+          PUBLIC_ADSENSE_SLOT_SIDEBAR: ${{ vars.PUBLIC_ADSENSE_SLOT_SIDEBAR }}
+          PUBLIC_ADSENSE_SLOT_INCONTENT: ${{ vars.PUBLIC_ADSENSE_SLOT_INCONTENT }}
+          PUBLIC_SPONSOR_URL: ${{ vars.PUBLIC_SPONSOR_URL }}
+          PUBLIC_SPONSOR_IMAGE_URL: ${{ vars.PUBLIC_SPONSOR_IMAGE_URL }}
+          PUBLIC_GA_ID: ${{ vars.PUBLIC_GA_ID }}
+          PUBLIC_CF_BEACON_TOKEN: ${{ vars.PUBLIC_CF_BEACON_TOKEN }}
+          PUBLIC_GSC_VERIFICATION: ${{ vars.PUBLIC_GSC_VERIFICATION }}
+          PUBLIC_GISCUS_REPO: ${{ vars.PUBLIC_GISCUS_REPO }}
+          PUBLIC_GISCUS_REPO_ID: ${{ vars.PUBLIC_GISCUS_REPO_ID }}
+          PUBLIC_GISCUS_CATEGORY: ${{ vars.PUBLIC_GISCUS_CATEGORY }}
+          PUBLIC_GISCUS_CATEGORY_ID: ${{ vars.PUBLIC_GISCUS_CATEGORY_ID }}
+          PUBLIC_GISCUS_MAPPING: ${{ vars.PUBLIC_GISCUS_MAPPING || 'pathname' }}
 
       - name: Content lint (H1/alt/slashes)
         run: pnpm check-content
@@ -63,3 +79,13 @@ jobs:
 
       - name: i18n coverage (report only)
         run: pnpm check-i18n
+
+      # Consumed by cd.yml, which is triggered by this workflow's
+      # completion — CI never deploys itself, see cd.yml for that half.
+      - name: Upload build output
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1

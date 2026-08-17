@@ -291,6 +291,17 @@ A: og:image 必须是**绝对路径**。确认：
 2. `public/images/hero.webp`（或你的封面图）确实存在且不是 0 字节占位文件
 3. 用 `curl` 检查：`curl -I https://<你的域名>/images/hero.webp` 应返回 200
 
+### Q: 为什么这个模板用 Workers 部署，而不是更简单的 Cloudflare Pages Git 自动连接？
+
+A: **已修复，这就是为什么。** 早期版本用 Cloudflare Pages（配套「连一下 GitHub 仓库，之后自动构建部署」的一键式体验），但 Pages 有一个无法干净修复的固有 bug：访问不带斜杠的 URL（如 `/bosses/emberfang`）会 308 跳转到带斜杠的形式（`/bosses/emberfang/`），无论 `astro.config.ts` 里 `trailingSlash: 'never'` 怎么设——这个设置**只控制 Astro 自己生成的 `<a href>`**，不影响 Cloudflare 怎么处理构建产物的目录形态文件（`dist/bosses/emberfang/index.html`）。这是所有走目录形态静态资源托管的通用行为，不是配置错误。
+
+**排查过程中验证并排除的方案**：
+
+- `build.format: 'file'`（扁平文件，`dist/bosses/emberfang.html`，不再有 308）——看似解决了，但 Astro 在这个模式下 `Astro.url.pathname` 构建期会带字面的 `.html` 后缀，而 `canonical`、`og:url`、语言切换器的自引用链接全依赖它拼 URL，全站这些 URL 会错误地带上 `.html`，比原问题更严重。
+- Pages 的 `public/_redirects` 文件（200 状态码 rewrite）——已实测：Cloudflare 的目录型静态资源自动跳转对 rewrite 目标同样生效，绕不过去。
+
+**现在用的方案**：迁移到 Cloudflare **Workers + Static Assets**（Cloudflare 目前推荐的新架构），`wrangler.toml` 里设 `html_handling = "drop-trailing-slash"`——访问不带斜杠的路径直接 200 返回内容，带斜杠的形式反过来 307 跳转到不带斜杠的版本，正好匹配 `trailingSlash: 'never'` 的设计初衷。已经在真实项目里验证生效（隔离测试 + 生产切换都确认过），模板的 `wrangler.toml`/`ci.yml`/`cd.yml` 已经是这套配置，fork 出去直接可用。
+
 ### Q: sitemap 里的 URL 还是 `*.pages.dev` 而不是自定义域名
 
 A: `SITE_URL` 环境变量没更新或没重新部署。改完后必须触发一次新部署。

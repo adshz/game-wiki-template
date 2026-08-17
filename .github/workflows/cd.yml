@@ -1,0 +1,73 @@
+name: CD
+
+# Deliberately a separate workflow from CI (see ci.yml) — single
+# responsibility: this file's only job is shipping an already-verified
+# build to production. It never runs on pull_request, so deploy secrets
+# are never exposed to untrusted changes. Triggered by CI's completion
+# rather than duplicating the lint/typecheck/test/build steps here.
+#
+# FORKS: this only runs if you've configured deploy secrets. In your
+# repo's Settings → Secrets and variables → Actions, add:
+#   - Secret:  CLOUDFLARE_API_TOKEN   ("Edit Cloudflare Workers" template)
+#   - Secret:  CLOUDFLARE_ACCOUNT_ID  (dash.cloudflare.com → Workers & Pages,
+#                                      account ID shown top-right)
+# Without those, this workflow still runs but the deploy step fails —
+# harmless, CI itself (your actual quality gate) is unaffected. See
+# docs/deployment.md for the full walkthrough, including why this
+# replaced Cloudflare Pages' Git-connect flow (it has a trailing-slash
+# redirect bug that Workers + html_handling:'drop-trailing-slash' fixes).
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+      actions: read # required to download an artifact from another workflow run
+    steps:
+      # wrangler deploy (Workers) reads wrangler.toml from the repo, unlike
+      # `wrangler pages deploy` which only needed the dist/ artifact — so
+      # this job needs a real checkout, not just the downloaded build.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # wrangler-action runs a package-manager install step when it finds a
+      # lockfile in the checkout — needs pnpm on PATH for that to succeed.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.1.1
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: pnpm
+
+      - name: Download build output from the CI run
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy
+          # wrangler isn't a project devDependency, so wrangler-action falls
+          # back to its own pinned default (3.90.0 as of writing) unless told
+          # otherwise — too old to reliably support html_handling in
+          # wrangler.toml's [assets] block. Pin to what's been tested.
+          wranglerVersion: '4.123.0'
