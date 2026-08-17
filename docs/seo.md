@@ -166,6 +166,7 @@
 □ og:image 是绝对路径，图片真实存在
 □ sitemap.xml 可访问，URL 数 = 实际页面数
 □ robots.txt 可访问，含 sitemap 链接
+□ 裸 URL（不带斜杠）访问不应 308 跳转 —— 见 deployment.md「常见问题」
 □ Google Rich Results Test 验证 JSON-LD 全通过
 □ hreflang 覆盖所有语言，x-default 指向英文
 □ 移动端适配正常

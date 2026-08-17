@@ -1,6 +1,6 @@
 # 部署指南
 
-> 把 AnvilWiki 部署到 Cloudflare Pages，全程免费、零配置、无限带宽。
+> 把 AnvilWiki 部署到 Cloudflare Workers，全程免费、两个 secret 搞定自动部署、无限带宽。
 >
 > 预计耗时：首次 10 分钟，熟练后 3 分钟。
 
@@ -17,11 +17,27 @@
 
 ---
 
-## 方式一：Cloudflare Pages Git 自动部署（推荐新手）
+## 方式一：GitHub Actions 自动部署（推荐）
 
-这是最简单的方式——连一下 GitHub 仓库，之后每次 `git push` 自动构建部署。
+这是最简单的方式——配好两个 secret，之后每次 `git push` 自动构建部署。仓库已经自带 `.github/workflows/ci.yml`（检查代码）和 `cd.yml`（部署），fork 后开箱即用。
 
-### Step 1 — 推代码到 GitHub
+> 为什么不是 Cloudflare Pages 的「连一下 GitHub 仓库」一键式体验？Pages 的静态资源托管有个无法干净修复的固有 bug（见下方常见问题「为什么用 Workers 部署」），Workers 是修复方案，但 Workers 没有对等的 Pages Git 一键连接体验——GitHub Actions 是最贴近的替代，而且更透明：部署逻辑就在你的仓库里，不是锁在 Cloudflare dashboard 的黑盒配置里。
+
+### Step 1 — 改个项目名
+
+`wrangler.toml` 里的 `name = "anvilwiki"` 是 demo 站自己的 Worker 名。fork 后先改成你自己的（如 `anvil-quest-wiki`），不然会尝试部署到 demo 站的 Worker 上（没有 demo 站的权限，部署会失败，不会真的覆盖别人的站）：
+
+```toml
+name = "anvil-quest-wiki"  # 改这一行
+compatibility_date = "2026-08-17"
+
+[assets]
+directory = "./dist"
+html_handling = "drop-trailing-slash"
+not_found_handling = "404-page"
+```
+
+### Step 2 — 推代码到 GitHub
 
 ```bash
 # 在项目根目录
@@ -35,64 +51,50 @@ git push -u origin main
 
 > 如果你 fork 的仓库，remote 已经配好了，直接 `git push`。
 
-### Step 2 — 在 Cloudflare 创建 Pages 项目
+### Step 3 — 拿 Cloudflare API Token + Account ID
 
-1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
-2. 左侧菜单选 **Workers & Pages**
-3. 点 **Create** → **Pages** → **Connect to Git**
-4. 授权 Cloudflare 访问你的 GitHub（首次需要）
-5. 选中你的 AnvilWiki 仓库
-6. 点 **Begin setup**
+1. 打开 [dash.cloudflare.com/profile/api-tokens](https://dash.cloudflare.com/profile/api-tokens) → **Create Token**
+2. 用模板 **"Edit Cloudflare Workers"**，Account Resources 选你自己的账号 → **Continue to summary** → **Create Token**
+3. 复制生成的 token（只显示一次，先存好）
+4. 回到 [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages**，右上角能看到你的 **Account ID**，复制它
 
-### Step 3 — 配置构建
+### Step 4 — 配 GitHub Secrets
 
-Cloudflare 会自动检测 Astro，但请确认以下设置：
+进你仓库的 **Settings** → **Secrets and variables** → **Actions**：
 
-| 字段                       | 值                                  |
-| -------------------------- | ----------------------------------- |
-| **Project name**           | 你的站点名（如 `anvil-quest-wiki`） |
-| **Production branch**      | `main`                              |
-| **Framework preset**       | `Astro`（自动识别）                 |
-| **Build command**          | `pnpm build`                        |
-| **Build output directory** | `dist`                              |
-| **Root directory**         | `/`（留空）                         |
+**Secrets** 标签页，添加：
 
-展开 **Environment variables (advanced)**，添加：
+| Name                    | 值                    |
+| ------------------------ | ---------------------- |
+| `CLOUDFLARE_API_TOKEN`   | Step 3 拿到的 token     |
+| `CLOUDFLARE_ACCOUNT_ID`  | Step 3 拿到的 Account ID |
 
-| 变量名                    | 值                            | 说明                                   |
-| ------------------------- | ----------------------------- | -------------------------------------- |
-| `NODE_VERSION`            | `22`                          | 确保 Node 版本（pnpm 11 需要 ≥22.13）  |
-| `SITE_URL`                | `https://<project>.pages.dev` | **先用临时域名**，必须含 `https://` 前缀 |
-| `PUBLIC_ADSENSE_CLIENT`    | （你的 AdSense Publisher ID） | 可选，留空则不显示广告                 |
+**Variables** 标签页，至少加 `SITE_URL`（先用临时的，绑域名后再改）：
 
-> ⚠️ **`SITE_URL` 必须含 `https://` 前缀**（如 `https://anvilquestwiki.wiki`，不是裸域名 `anvilquestwiki.wiki`）。Astro 把它当 URL 解析，裸域名会让 build 报 `Invalid url`。它影响 sitemap、og:image、robots.txt 里所有绝对 URL 的生成。
+| Name                       | 值                              | 说明                       |
+| --------------------------- | -------------------------------- | -------------------------- |
+| `SITE_URL`                  | `https://anvil-quest-wiki.<你的子域>.workers.dev` | 部署一次后从 Cloudflare 拿到真实地址，先随便填个占位值也行，Step 5 后再回来改 |
+| `PUBLIC_GA_ID`               | （可选）                          | Google Analytics ID        |
+| `PUBLIC_GISCUS_REPO` 等      | （可选）                          | 见下方「环境变量清单」      |
 
-> 🚨 **重要：`wrangler.toml` 会接管 env 配置。** 本仓库根目录有 `wrangler.toml`，里面声明了 `[vars]` 段。**当 wrangler.toml 存在时，Cloudflare dashboard 的 Environment variables 会被完全忽略**（[官方文档](https://developers.cloudflare.com/pages/functions/wrangler-configuration/)）。所以你有两个选择：
->
-> - **选项 A（推荐新手）：删掉 `wrangler.toml`**，然后 dashboard 的 Environment variables 就能正常工作。fork 后 `git rm wrangler.toml && git commit`，再在 dashboard 配 env 即可。
-> - **选项 B（保留 wrangler.toml）：改 `wrangler.toml` 的 `[vars]` 值**，把 `SITE_URL` 和 `PUBLIC_GISCUS_*` 改成你自己的，dashboard 不用配（配了也被忽略）。
->
-> 如果你在 dashboard 配了 env 但 build 时拿不到（症状：组件不渲染、`process.env` 读不到），99% 是踩了这个坑。诊断方法：在 `astro.config.ts` 顶部加一行 `console.log('ENV:', Object.keys(process.env).filter(k => k.startsWith('PUBLIC_')))`，push 后看 build 日志。
+> ⚠️ **`SITE_URL` 必须含 `https://` 前缀**（Astro 把它当 URL 解析，裸域名会让 build 报 `Invalid url`）。
 
-### Step 4 — 部署
+### Step 5 — 触发部署
 
-点 **Save and Deploy**。Cloudflare 会：
+Push 任意一个 commit（哪怕是空的）到 `main`：
 
-1. 拉取你的代码
-2. 运行 `pnpm install` + `pnpm build`
-3. 把 `dist/` 部署到全球 CDN
+```bash
+git commit --allow-empty -m "trigger deploy"
+git push
+```
 
-构建日志里看到 `Complete!` 就成功了（页数随内容增长，不用纠结具体数字）。整个过程 2-3 分钟。
-
-### Step 5 — 访问站点
-
-部署完成后，你会拿到一个 `https://<project>.pages.dev` 的地址，打开就能看到你的站点了。
+GitHub Actions 会自动：`ci.yml` 跑 lint/typecheck/test/build/一堆内容检查 → 全部通过后触发 `cd.yml` → `wrangler deploy` 把 `dist/` 传到 Cloudflare。在仓库的 **Actions** 标签页能看到两个工作流依次跑完，`CD` 那个的日志最后会打印你的 `*.workers.dev` 地址。
 
 ---
 
 ## 绑定自定义域名
 
-免费赠送的 `*.pages.dev` 域名可以一直用，但为了 SEO 和品牌，建议绑自定义域名。
+免费赠送的 `*.workers.dev` 域名可以一直用，但为了 SEO 和品牌，建议绑自定义域名。
 
 ### Step 1 — 买域名
 
@@ -106,65 +108,55 @@ Cloudflare 会自动检测 Astro，但请确认以下设置：
 
 > 游戏 wiki 站首选 `.wiki` 后缀——便宜、相关性高、SEO 友好。
 
-### Step 2 — 在 Cloudflare 配域名
+### Step 2 — 域名先转到 Cloudflare（如果还没在上面）
 
-1. 进入你的 Pages 项目 → **Custom domains** → **Set up a custom domain**
-2. 输入你的域名（如 `anvilquestwiki.wiki`）
-3. Cloudflare 会给你一条 **CNAME 记录**：
-   ```
-   类型:  CNAME
-   名称:  @（或 www）
-   值:    <project>.pages.dev
-   ```
-4. 去你的域名注册商后台，把这条 CNAME 加上
-5. 等 DNS 生效（几分钟到几小时）
+**Workers & Pages** → **Overview**，或直接在 dashboard 左侧菜单找 **Websites** → **Add a site**，输入你的域名，按提示把域名的 nameservers 改成 Cloudflare 给的两条——这一步是任何 Cloudflare 服务（Workers/Pages 都一样）绑自定义域名的前提，域名商那边操作，等生效（几分钟到几小时）。
 
-### Step 3 — 更新 SITE_URL 并重新部署
+### Step 3 — 在 Cloudflare 给 Worker 绑域名
 
-DNS 生效后，改 `SITE_URL` 为你的真实域名。**根据你部署时的选择**：
+1. **Workers & Pages** → 选中你的 Worker（Step 1 里改的名字）
+2. **Settings** → **Domains & Routes** → **Add** → **Custom Domain**
+3. 输入你的域名（如 `anvilquestwiki.wiki`），点 **Add Domain**
+4. Cloudflare 自动配好 DNS + 签发 SSL 证书，几分钟内生效
 
-- **如果删了 `wrangler.toml`**：去 Cloudflare Pages → **Settings** → **Environment variables**，把 `SITE_URL` 改成 `https://anvilquestwiki.wiki`。
-- **如果保留了 `wrangler.toml`**：改 `wrangler.toml` 里 `[vars]` 的 `SITE_URL`，commit + push。
+> www 子域名想要的话，重复一遍上面的步骤，输入 `www.anvilquestwiki.wiki`。
+
+### Step 4 — 更新 SITE_URL 并重新部署
+
+回到仓库 **Settings** → **Secrets and variables** → **Actions** → **Variables**，把 `SITE_URL` 改成你的真实域名：
 
 ```
 SITE_URL=https://anvilquestwiki.wiki
 ```
 
-然后触发一次重新部署（push 一个空 commit，或在 dashboard 点 **Retry deployment**）。
+然后触发一次重新部署（`git commit --allow-empty -m "update SITE_URL" && git push`）。
 
-> ⚠️ 这一步必做——否则 sitemap 里的 URL 还是 `*.pages.dev`，影响 SEO。
-
-### Step 4 — HTTPS 自动生效
-
-Cloudflare 会自动签发 Let's Encrypt SSL 证书。DNS 生效后等 5-15 分钟，`https://` 就能访问了。期间浏览器报证书错误（CN=`*.pages.dev`）是正常的，证书变 **Active** 后就好。
+> ⚠️ 这一步必做——否则 sitemap 里的 URL 还是 `*.workers.dev`，影响 SEO。
 
 ---
 
-## 方式二：Wrangler CLI 部署（进阶）
+## 方式二：Wrangler CLI 手动部署（本地/进阶）
 
-适合不想连 GitHub、或想在 CI/CD 里控制部署的场景。
+适合不想用 GitHub Actions、想在本地直接部署的场景。
 
 ### 前提
 
 ```bash
-# 安装 Wrangler（Cloudflare 的 CLI）
-pnpm add -g wrangler
-
-# 登录
-wrangler login
+# 登录（会打开浏览器授权）
+npx wrangler login
 ```
 
 ### 部署
 
 ```bash
-# 先构建
-pnpm build
+# 设置好 SITE_URL 等环境变量后构建
+SITE_URL=https://anvilquestwiki.wiki pnpm build
 
-# 部署到 Pages
-wrangler pages deploy dist --project-name=<你的项目名>
+# 部署（读取 wrangler.toml 里的项目名，不用额外传参）
+npx wrangler deploy
 ```
 
-首次会问你是否创建项目，选 yes。之后每次部署就一行命令。
+首次部署会自动创建 Worker。之后每次部署就是"设环境变量 build，然后 deploy"两行命令。
 
 ---
 
@@ -179,20 +171,19 @@ AnvilWiki 是纯静态站点（`dist/`），可以部署到任何静态托管：
 | **GitHub Pages** | 需配 `base`                               | 100GB/月带宽 |
 | **自建 VPS**     | `scp -r dist/ user@vps:/var/www/` + nginx | 看你的 VPS   |
 
-> ⚠️ 只有 Cloudflare Pages 是**无限带宽**。其他平台超量后要么限速要么收费。这也是 AnvilWiki 默认推荐 Cloudflare 的原因。
+> ⚠️ 只有 Cloudflare（Workers 静态资源同 Pages 一样）是**无限带宽/无限请求数**——Cloudflare 官方文档明确写了「Requests to static assets are free and unlimited」，不占用 Workers Free 计划每天 10 万次调用的额度。其他平台超量后要么限速要么收费。这也是 AnvilWiki 默认推荐 Cloudflare 的原因。
 
 ---
 
 ## 环境变量清单
 
-> ⚠️ **先读 [wrangler.toml 接管警告](#cloudflare-pages-推荐)**：如果你保留了 `wrangler.toml`（方案 A/B），下表所有变量必须写进它的 `[vars]` 段——此时在 Pages → Settings → **Environment variables** 里配置是**无效的**（dashboard 会被完全忽略）。删掉 `wrangler.toml`（方案 C）才用 dashboard 配置。
+**本地开发**：复制 `.env.example` 为 `.env`，填你要用的值，Astro/Vite 会自动读取。
 
-Dashboard（方案 C）在 Pages → **Settings** → **Environment variables** 配置。支持 Production / Preview 两套。
+**CI/CD 部署**（方式一）：在仓库 **Settings → Secrets and variables → Actions → Variables** 里配置——`ci.yml` 的 Build 步骤会读取这些值传给 `pnpm build`。这两套（本地 `.env` 和 GitHub Actions Variables）互不影响，各自配各自的。
 
 | 变量                        | 必填 | 说明                                                   |
 | --------------------------- | ---- | ------------------------------------------------------ |
 | `SITE_URL`                  | ✅   | 站点绝对 URL（含 `https://`，无尾斜杠），影响 sitemap/og:image/robots |
-| `NODE_VERSION`              | ✅   | 固定 `22`（pnpm 11 要求 ≥22.13）                       |
 | `PUBLIC_ADSENSE_CLIENT`      | 可选 | AdSense Publisher ID（`ca-pub-XXXXXXXXXXXXXXXX`）      |
 | `PUBLIC_ADSENSE_SLOT_STICKY` | 可选 | Sticky 粘顶横幅 slot ID                                |
 | `PUBLIC_ADSENSE_SLOT_SIDEBAR`| 可选 | Sidebar 桌面端侧边栏 slot ID                           |
@@ -209,6 +200,8 @@ Dashboard（方案 C）在 Pages → **Settings** → **Environment variables** 
 | `PUBLIC_GISCUS_MAPPING`     | 可选 | Giscus 页面映射方式，默认 `pathname`（唯一可选项）     |
 
 完整说明见 [`.env.example`](../.env.example)。所有广告/评论变量**留空时对应组件不渲染**——新手可以先不配广告把站上线，后续再加。
+
+**部署认证**（`CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`）是单独一套，放在 **Secrets** 而不是 **Variables**，见上方「方式一」Step 4——这两个是 wrangler 部署本身用的凭证，跟上表的站点内容变量是两回事。
 
 ---
 
@@ -230,8 +223,8 @@ curl https://<你的域名>/robots.txt
 # 期望: 含 Sitemap: https://<你的域名>/sitemap-index.xml
 
 # 4. 多语言页面可访问
-curl -I https://<你的域名>/ja/   # 日文首页
-curl -I https://<你的域名>/bosses/  # 英文列表页
+curl -I https://<你的域名>/ja
+curl -I https://<你的域名>/bosses
 
 # 5. 文章页正常
 curl -I https://<你的域名>/bosses/emberfang
@@ -239,14 +232,19 @@ curl -I https://<你的域名>/bosses/emberfang
 
 # 6. 法律页可访问
 curl -I https://<你的域名>/about
-curl -I https://<你的域名>/privacy-policy/
+curl -I https://<你的域名>/privacy-policy
+
+# 7. 不带斜杠的 URL 不应该 308 跳转
+curl -I https://<你的域名>/bosses
+# 期望: HTTP/2 200 —— 如果是 308，检查 wrangler.toml 的 [assets] 是否还带着
+# html_handling = "drop-trailing-slash"（有可能被误删）
 ```
 
 ### SEO 验证
 
 1. **Google Rich Results Test**：https://search.google.com/test/rich-results
-   - 输入你的首页 URL，验证 Organization + WebSite + FAQPage 结构化数据有效
-   - 输入一篇文章 URL，验证 Article + BreadcrumbList 有效
+   - 输入你的首页 URL——只会看到 Organization + WebSite，这俩不是 rich-result 类型，显示「No items detected」是正常的，不代表出错
+   - 输入一篇文章 URL，验证 Article + BreadcrumbList 有效（这俩才是真正会显示「valid items detected」的类型）
 
 2. **Google Search Console**：
    - 添加你的域名（选"网域"方式 → DNS 验证）
@@ -256,20 +254,25 @@ curl -I https://<你的域名>/privacy-policy/
 ### 性能验证
 
 1. **PageSpeed Insights**：https://pagespeed.web.dev
-   - 输入你的域名，Lighthouse Performance 应该 ≥ 95
+   - 输入你的域名，Lighthouse SEO 应该 100，Performance 应该 ≥ 90
    - Core Web Vitals 全绿（LCP < 2.5s，CLS < 0.1）
 
 ---
 
 ## 常见问题
 
-### Q: 构建失败，报 `Cannot find module 'astro:content'`
+### Q: GitHub Actions 里 Build 步骤失败，报 `Cannot find module 'astro:content'`
 
-A: Cloudflare Pages 的 Node 版本可能不对。确认环境变量 `NODE_VERSION=22` 已配。
+A: Node 版本可能不对。`ci.yml`/`cd.yml` 都用 `actions/setup-node` 读取仓库根目录的 `.nvmrc`（应该是 `22`），确认这个文件存在且内容正确：
 
-### Q: 构建失败，报 `ERR_PNPM_IGNORED_BUILDS`
+```bash
+cat .nvmrc
+# 应该看到: 22
+```
 
-A: pnpm 版本太新，需要 `pnpm-workspace.yaml` 里的 `allowBuilds` 配置（仓库已自带）。确认文件存在：
+### Q: 构建/部署失败，报 `ERR_PNPM_IGNORED_BUILDS`
+
+A: pnpm 版本较新，默认拒绝执行依赖的 postinstall 脚本，需要 `pnpm-workspace.yaml` 里的 `allowBuilds` 配置（仓库已自带）。确认文件存在且包含这三项：
 
 ```bash
 cat pnpm-workspace.yaml
@@ -277,17 +280,20 @@ cat pnpm-workspace.yaml
 # allowBuilds:
 #   esbuild: true
 #   sharp: true
+#   workerd: true
 ```
+
+`workerd` 是 `cd.yml` 部署时 wrangler 自己的依赖需要的，只跑本地/CI 检查（`ci.yml`）不会触发这条。
 
 ### Q: 部署成功但页面 404
 
-A: 检查 Cloudflare 的 **Build output directory** 是不是 `dist`（不是 `public` 或 `.next`）。
+A: 检查 `wrangler.toml` 的 `[assets] directory` 是不是 `./dist`（不是 `./public` 或别的目录），以及 `pnpm build` 确实在部署前跑过、`dist/` 里有内容。
 
 ### Q: 图片不显示 / og:image 抓不到
 
 A: og:image 必须是**绝对路径**。确认：
 
-1. `SITE_URL` 环境变量已配为最终域名
+1. `SITE_URL`（GitHub Actions Variable）已配为最终域名并重新部署过
 2. `public/images/hero.webp`（或你的封面图）确实存在且不是 0 字节占位文件
 3. 用 `curl` 检查：`curl -I https://<你的域名>/images/hero.webp` 应返回 200
 
@@ -300,11 +306,11 @@ A: **已修复，这就是为什么。** 早期版本用 Cloudflare Pages（配�
 - `build.format: 'file'`（扁平文件，`dist/bosses/emberfang.html`，不再有 308）——看似解决了，但 Astro 在这个模式下 `Astro.url.pathname` 构建期会带字面的 `.html` 后缀，而 `canonical`、`og:url`、语言切换器的自引用链接全依赖它拼 URL，全站这些 URL 会错误地带上 `.html`，比原问题更严重。
 - Pages 的 `public/_redirects` 文件（200 状态码 rewrite）——已实测：Cloudflare 的目录型静态资源自动跳转对 rewrite 目标同样生效，绕不过去。
 
-**现在用的方案**：迁移到 Cloudflare **Workers + Static Assets**（Cloudflare 目前推荐的新架构），`wrangler.toml` 里设 `html_handling = "drop-trailing-slash"`——访问不带斜杠的路径直接 200 返回内容，带斜杠的形式反过来 307 跳转到不带斜杠的版本，正好匹配 `trailingSlash: 'never'` 的设计初衷。已经在真实项目里验证生效（隔离测试 + 生产切换都确认过），模板的 `wrangler.toml`/`ci.yml`/`cd.yml` 已经是这套配置，fork 出去直接可用。
+**现在用的方案**：迁移到 Cloudflare **Workers + Static Assets**（Cloudflare 目前推荐的新架构），`wrangler.toml` 里设 `html_handling = "drop-trailing-slash"`——访问不带斜杠的路径直接 200 返回内容，带斜杠的形式反过来 307 跳转到不带斜杠的版本，正好匹配 `trailingSlash: 'never'` 的设计初衷。已经在真实项目里验证生效（隔离测试 + 生产切换都确认过），模板的 `wrangler.toml`/`ci.yml`/`cd.yml` 已经是这套配置，fork 出去直接可用，不需要再折腾这部分。
 
-### Q: sitemap 里的 URL 还是 `*.pages.dev` 而不是自定义域名
+### Q: sitemap 里的 URL 还是 `*.workers.dev` 而不是自定义域名
 
-A: `SITE_URL` 环境变量没更新或没重新部署。改完后必须触发一次新部署。
+A: `SITE_URL`（GitHub Actions Variable）没更新，或更新后没触发重新部署。改完必须 push 一个新 commit（哪怕是空的）才会重新构建部署，Variable 改动本身不会自动触发。
 
 ### Q: 日文页面显示英文 fallback
 
