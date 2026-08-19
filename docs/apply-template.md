@@ -210,6 +210,16 @@ echo '{}' > src/locales/ru.json
 
 **favicon 生成**：用 [favicon.io](https://favicon.io/favicon-converter/) 从一张图生成全套。
 
+**`favicon.svg` 是死文件**：模板自带的 `public/favicon.svg`（通用图标）没有被任何模板代码引用——`BaseLayout.astro` 只 `<link>` 了 `favicon.ico`。可以放心忽略，不需要为它单独出图。
+
+**404 页面的 logo**（`src/pages/404.astro`）：页面顶部硬编码了通用图标 `<Icon name="lucide:compass" />`，不是站点真实 logo，换肤时容易漏改（它属于代码层，按第 7 行的核心原则本不该动，但这一处是例外）。建议手动把它换成你的站点 logo，写法参考 `SiteHeader.astro` 里 logo 的用法：
+
+```astro
+<img src="/images/{你的logo文件}" alt="" class="h-16 w-16 rounded-full" width="64" height="64" />
+```
+
+不换的话，404 页面视觉上会和真实站点的 header/品牌形象脱节。
+
 ---
 
 ## 7. MDX 文章
@@ -249,7 +259,8 @@ tags: ["boss", "guide"]
 □ globals.css 主题色已改（4 行）
 □ routing.ts 语言与 locales/*.json 同步
 □ en.json 无 demo 游戏名残留
-□ favicon 全套已替换
+□ favicon 全套已替换（favicon.svg 是死文件，忽略即可）
+□ 404 页面（src/pages/404.astro）的 logo 已从占位 lucide:compass 换成真实站点 logo
 □ hero 图是真实图片（非占位）
 □ 所有 MDX frontmatter 通过 Zod schema（pnpm build 不报错）
 □ sitemap URL 全部返回 200（pnpm check-sitemap）
